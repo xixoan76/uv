@@ -344,7 +344,7 @@ impl Lock {
         let packages = packages.into_values().collect();
         let (exclude_newer, exclude_newer_package) = {
             let exclude_newer = &resolution.options.exclude_newer;
-            let global_exclude_newer = exclude_newer.global;
+            let global_exclude_newer = exclude_newer.global.clone();
             let package_exclude_newer = if exclude_newer.package.is_empty() {
                 None
             } else {
@@ -353,11 +353,13 @@ impl Lock {
             (global_exclude_newer, package_exclude_newer)
         };
 
+        let exclude_newer_span = exclude_newer.as_ref().and_then(|t| t.span().map(String::from));
         let options = ResolverOptions {
             resolution_mode: resolution.options.resolution_mode,
             prerelease_mode: resolution.options.prerelease_mode,
             fork_strategy: resolution.options.fork_strategy,
             exclude_newer,
+            exclude_newer_span,
             exclude_newer_package,
         };
         let lock = Self::new(
@@ -1068,8 +1070,12 @@ impl Lock {
             let exclude_newer = &self.options.exclude_newer();
             if !exclude_newer.is_empty() {
                 // Always serialize global exclude-newer as a string
-                if let Some(global) = exclude_newer.global {
+                if let Some(global) = &exclude_newer.global {
                     options_table.insert("exclude-newer", value(global.to_string()));
+                    // Serialize the original span if present
+                    if let Some(span) = global.span() {
+                        options_table.insert("exclude-newer-span", value(span));
+                    }
                 }
 
                 // Serialize package-specific exclusions as a separate field
@@ -2098,6 +2104,8 @@ struct ResolverOptions {
     fork_strategy: ForkStrategy,
     /// The global [`ExcludeNewer`] timestamp.
     exclude_newer: Option<ExcludeNewerTimestamp>,
+    /// The original span string if exclude_newer was created from a relative timestamp.
+    exclude_newer_span: Option<String>,
     /// Package-specific [`ExcludeNewer`] timestamps.
     exclude_newer_package: Option<FxHashMap<PackageName, ExcludeNewerTimestamp>>,
 }
@@ -2105,8 +2113,15 @@ struct ResolverOptions {
 impl ResolverOptions {
     /// Get the combined exclude-newer configuration.
     fn exclude_newer(&self) -> ExcludeNewer {
+        // If we have a span, attach it to the timestamp
+        let exclude_newer = if let (Some(timestamp), Some(span)) = (&self.exclude_newer, &self.exclude_newer_span) {
+            Some(ExcludeNewerTimestamp::with_span(timestamp.timestamp(), Some(span.clone())))
+        } else {
+            self.exclude_newer.clone()
+        };
+        
         ExcludeNewer::from_args(
-            self.exclude_newer,
+            exclude_newer,
             self.exclude_newer_package
                 .clone()
                 .unwrap_or_default()

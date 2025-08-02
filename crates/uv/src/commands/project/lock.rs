@@ -1000,15 +1000,35 @@ impl ValidatedLock {
             options_exclude_newer.is_empty(),
         ) {
             (true, true) => (),
-            (false, false) if lock_exclude_newer == *options_exclude_newer => (),
             (false, false) => {
-                let _ = writeln!(
-                    printer.stderr(),
-                    "Ignoring existing lockfile due to change in timestamp cutoff: `{}` vs. `{}`",
-                    lock_exclude_newer.cyan(),
-                    options_exclude_newer.cyan()
-                );
-                return Ok(Self::Unusable(lock));
+                // Check if exclude-newer values match, considering spans
+                let matches = if let (Some(lock_global), Some(options_global)) = 
+                    (&lock_exclude_newer.global, &options_exclude_newer.global) {
+                    // If the lock has a span, compare spans
+                    if let Some(lock_span) = lock_global.span() {
+                        if let Some(options_span) = options_global.span() {
+                            lock_span == options_span
+                        } else {
+                            // Lock has span but options doesn't - they don't match
+                            false
+                        }
+                    } else {
+                        // No span in lock, compare timestamps normally
+                        lock_exclude_newer == *options_exclude_newer
+                    }
+                } else {
+                    lock_exclude_newer == *options_exclude_newer
+                };
+                
+                if !matches {
+                    let _ = writeln!(
+                        printer.stderr(),
+                        "Ignoring existing lockfile due to change in timestamp cutoff: `{}` vs. `{}`",
+                        lock_exclude_newer.cyan(),
+                        options_exclude_newer.cyan()
+                    );
+                    return Ok(Self::Unusable(lock));
+                }
             }
             (false, true) => {
                 let _ = writeln!(

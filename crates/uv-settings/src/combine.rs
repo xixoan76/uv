@@ -230,7 +230,7 @@ impl Combine for ExcludeNewer {
             } else {
                 // Merge package-specific timestamps, with self taking precedence
                 for (pkg, timestamp) in &other.package {
-                    self.package.entry(pkg.clone()).or_insert(*timestamp);
+                    self.package.entry(pkg.clone()).or_insert(timestamp.clone());
                 }
             }
         }

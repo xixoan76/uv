@@ -5,24 +5,63 @@ use std::{
     str::FromStr,
 };
 
-use jiff::{Timestamp, ToSpan, tz::TimeZone};
+use jiff::{Span, Timestamp, ToSpan, tz::TimeZone};
 use rustc_hash::FxHashMap;
 use uv_normalize::PackageName;
 
 /// A timestamp that excludes files newer than it.
-#[derive(Debug, Copy, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
-pub struct ExcludeNewerTimestamp(Timestamp);
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExcludeNewerTimestamp {
+    /// The resolved timestamp
+    timestamp: Timestamp,
+    /// The original span string if this was created from a relative timestamp
+    span: Option<String>,
+}
+
+impl serde::Serialize for ExcludeNewerTimestamp {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.timestamp.serialize(serializer)
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for ExcludeNewerTimestamp {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let s = String::deserialize(deserializer)?;
+        Self::from_str(&s).map_err(serde::de::Error::custom)
+    }
+}
 
 impl ExcludeNewerTimestamp {
     /// Returns the timestamp in milliseconds.
     pub fn timestamp_millis(&self) -> i64 {
-        self.0.as_millisecond()
+        self.timestamp.as_millisecond()
+    }
+
+    /// Returns the timestamp.
+    pub fn timestamp(&self) -> Timestamp {
+        self.timestamp
+    }
+
+    /// Returns the original span string if this was created from a relative timestamp.
+    pub fn span(&self) -> Option<&str> {
+        self.span.as_deref()
+    }
+
+    /// Creates a new ExcludeNewerTimestamp with the given timestamp and optional span.
+    pub fn with_span(timestamp: Timestamp, span: Option<String>) -> Self {
+        Self { timestamp, span }
     }
 }
 
 impl From<Timestamp> for ExcludeNewerTimestamp {
     fn from(timestamp: Timestamp) -> Self {
-        Self(timestamp)
+        Self { timestamp, span: None }
     }
 }
 
@@ -32,7 +71,7 @@ impl FromStr for ExcludeNewerTimestamp {
     /// Parse an [`ExcludeNewerTimestamp`] from a string.
     ///
     /// Accepts both RFC 3339 timestamps (e.g., `2006-12-02T02:07:43Z`) and local dates in the same
-    /// format (e.g., `2006-12-02`).
+    /// format (e.g., `2006-12-02`), as well as relative durations (e.g., `1 week`, `30 days`).
     fn from_str(input: &str) -> Result<Self, Self::Err> {
         // NOTE(burntsushi): Previously, when using Chrono, we tried
         // to parse as a date first, then a timestamp, and if both
@@ -46,29 +85,74 @@ impl FromStr for ExcludeNewerTimestamp {
         // in the non-date portion, the date parsing below will still
         // report a holistic error that will make sense to the user.
         // (I added a snapshot test for that case.)
+
+        // Try parsing as a timestamp first
         if let Ok(timestamp) = input.parse::<Timestamp>() {
-            return Ok(Self(timestamp));
+            return Ok(Self { timestamp, span: None });
         }
-        let date = input
-            .parse::<jiff::civil::Date>()
-            .map_err(|err| format!("`{input}` could not be parsed as a valid date: {err}"))?;
-        let timestamp = date
-            .checked_add(1.day())
-            .and_then(|date| date.to_zoned(TimeZone::system()))
-            .map(|zdt| zdt.timestamp())
-            .map_err(|err| {
-                format!(
-                    "`{input}` parsed to date `{date}`, but could not \
-                     be converted to a timestamp: {err}",
-                )
-            })?;
-        Ok(Self(timestamp))
+
+        // Try parsing as a date
+        if let Ok(date) = input.parse::<jiff::civil::Date>() {
+            let timestamp = date
+                .checked_add(1.day())
+                .and_then(|date| date.to_zoned(TimeZone::system()))
+                .map(|zdt| zdt.timestamp())
+                .map_err(|err| {
+                    format!(
+                        "`{input}` parsed to date `{date}`, but could not \
+                         be converted to a timestamp: {err}",
+                    )
+                })?;
+            return Ok(Self { timestamp, span: None });
+        }
+
+        // Try parsing as a relative duration/span
+        match input.parse::<Span>() {
+            Ok(span) => {
+                let now = Timestamp::now();
+
+                // For spans with calendar units (years, months, weeks, days),
+                // we need to apply them differently than time units
+                if span.get_years() != 0
+                    || span.get_months() != 0
+                    || span.get_weeks() != 0
+                    || span.get_days() != 0
+                {
+                    // Convert to a date, subtract the calendar units, then back to a timestamp
+                    let now_date = now.to_zoned(TimeZone::system()).date();
+                    let past_date = now_date.checked_sub(span).map_err(|err| {
+                        format!(
+                            "Duration `{input}` is too large to subtract from current date: {err}"
+                        )
+                    })?;
+                    let cutoff = past_date
+                        .to_zoned(TimeZone::system())
+                        .map_err(|err| format!("Could not convert date back to timestamp: {err}"))?
+                        .timestamp();
+                    Ok(Self { timestamp: cutoff, span: Some(input.to_string()) })
+                } else {
+                    // Only time units - can subtract directly from timestamp
+                    let cutoff = now.checked_sub(span).map_err(|err| {
+                        format!(
+                            "Duration `{input}` is too large to subtract from current time: {err}"
+                        )
+                    })?;
+                    Ok(Self { timestamp: cutoff, span: Some(input.to_string()) })
+                }
+            }
+            Err(span_err) => {
+                // Return a comprehensive error message
+                Err(format!(
+                    "`{input}` could not be parsed as a timestamp, date, or relative duration: {span_err}"
+                ))
+            }
+        }
     }
 }
 
 impl std::fmt::Display for ExcludeNewerTimestamp {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        self.0.fmt(f)
+        self.timestamp.fmt(f)
     }
 }
 
@@ -201,7 +285,7 @@ impl ExcludeNewer {
         &self,
         package_name: &PackageName,
     ) -> Option<ExcludeNewerTimestamp> {
-        self.package.get(package_name).copied().or(self.global)
+        self.package.get(package_name).cloned().or(self.global.clone())
     }
 
     /// Returns true if this has any configuration (global or per-package).
@@ -212,7 +296,7 @@ impl ExcludeNewer {
 
 impl std::fmt::Display for ExcludeNewer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if let Some(global) = self.global {
+        if let Some(global) = &self.global {
             write!(f, "global: {global}")?;
             if !self.package.is_empty() {
                 write!(f, ", ")?;
@@ -240,7 +324,65 @@ impl schemars::JsonSchema for ExcludeNewerTimestamp {
         schemars::json_schema!({
             "type": "string",
             "pattern": r"^\d{4}-\d{2}-\d{2}(T\d{2}:\d{2}:\d{2}(Z|[+-]\d{2}:\d{2}))?$",
-            "description": "Exclude distributions uploaded after the given timestamp.\n\nAccepts both RFC 3339 timestamps (e.g., `2006-12-02T02:07:43Z`) and local dates in the same format (e.g., `2006-12-02`).",
+            "description": "Exclude distributions uploaded after the given timestamp.\n\nAccepts both RFC 3339 timestamps (e.g., `2006-12-02T02:07:43Z`) and local dates in the same format (e.g., `2006-12-02`), as well as relative durations (e.g., `1 week`, `30 days`, `6 months`). Relative durations are resolved to an absolute timestamp at lock time.",
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::str::FromStr;
+
+    #[test]
+    fn test_exclude_newer_timestamp_absolute() {
+        // Test RFC 3339 timestamp
+        let timestamp = ExcludeNewerTimestamp::from_str("2023-01-01T00:00:00Z").unwrap();
+        assert!(timestamp.to_string().contains("2023-01-01"));
+
+        // Test local date
+        let timestamp = ExcludeNewerTimestamp::from_str("2023-06-15").unwrap();
+        assert!(timestamp.to_string().contains("2023-06-16")); // Should be next day
+    }
+
+    #[test]
+    fn test_exclude_newer_timestamp_relative() {
+        // Test "1 hour" - simpler test case
+        let timestamp = ExcludeNewerTimestamp::from_str("1 hour").unwrap();
+        let now = jiff::Timestamp::now();
+        let diff = now.as_second() - timestamp.timestamp.as_second();
+        // Should be approximately 1 hour (3600 seconds) ago
+        assert!(
+            diff >= 3550 && diff <= 3650,
+            "Expected ~3600 seconds, got {diff}"
+        );
+
+        // Test that we get a timestamp in the past
+        assert!(timestamp.timestamp < now, "Timestamp should be in the past");
+
+        // Test parsing succeeds for various formats
+        assert!(ExcludeNewerTimestamp::from_str("2 days").is_ok());
+        assert!(ExcludeNewerTimestamp::from_str("1 week").is_ok());
+        assert!(ExcludeNewerTimestamp::from_str("30 days").is_ok());
+    }
+
+    #[test]
+    fn test_exclude_newer_timestamp_invalid() {
+        // Test invalid formats
+        assert!(ExcludeNewerTimestamp::from_str("invalid").is_err());
+        assert!(ExcludeNewerTimestamp::from_str("not a date").is_err());
+        assert!(ExcludeNewerTimestamp::from_str("").is_err());
+    }
+
+    #[test]
+    fn test_exclude_newer_package_entry() {
+        let entry = ExcludeNewerPackageEntry::from_str("numpy=2023-01-01T00:00:00Z").unwrap();
+        assert_eq!(entry.package.as_ref(), "numpy");
+        assert!(entry.timestamp.to_string().contains("2023-01-01"));
+
+        // Test with relative timestamp
+        let entry = ExcludeNewerPackageEntry::from_str("requests=7 days").unwrap();
+        assert_eq!(entry.package.as_ref(), "requests");
+        // Just verify it parsed without error - the timestamp will be relative to now
     }
 }
