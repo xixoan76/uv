@@ -150,6 +150,31 @@ enum InstallErrorKind {
     Registry,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum PythonUpgradeSource {
+    /// The user invoked `uv python install --upgrade`
+    Install,
+    /// The user invoked `uv python upgrade`
+    Upgrade,
+}
+
+impl std::fmt::Display for PythonUpgradeSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Install => write!(f, "uv python install --upgrade"),
+            Self::Upgrade => write!(f, "uv python upgrade"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum PythonUpgrade {
+    /// Python upgrades are enabled.
+    Enabled(PythonUpgradeSource),
+    /// Python upgrades are disabled.
+    Disabled,
+}
+
 /// Download and install Python versions.
 #[allow(clippy::fn_params_excessive_bools)]
 pub(crate) async fn install(
@@ -157,7 +182,7 @@ pub(crate) async fn install(
     install_dir: Option<PathBuf>,
     targets: Vec<String>,
     reinstall: bool,
-    upgrade: bool,
+    upgrade: PythonUpgrade,
     bin: Option<bool>,
     registry: Option<bool>,
     force: bool,
@@ -184,11 +209,13 @@ pub(crate) async fn install(
         );
     }
 
-    if upgrade && !preview.is_enabled(PreviewFeatures::PYTHON_UPGRADE) {
-        warn_user!(
-            "`uv python upgrade` is experimental and may change without warning. Pass `--preview-features {}` to disable this warning",
-            PreviewFeatures::PYTHON_UPGRADE
-        );
+    if let PythonUpgrade::Enabled(source @ PythonUpgradeSource::Upgrade) = upgrade {
+        if !preview.is_enabled(PreviewFeatures::PYTHON_UPGRADE) {
+            warn_user!(
+                "`{source}` is experimental and may change without warning. Pass `--preview-features {}` to disable this warning",
+                PreviewFeatures::PYTHON_UPGRADE
+            );
+        }
     }
 
     if default && targets.len() > 1 {
@@ -209,7 +236,10 @@ pub(crate) async fn install(
     let mut is_default_install = false;
     let mut is_unspecified_upgrade = false;
     let requests: Vec<_> = if targets.is_empty() {
-        if upgrade {
+        if matches!(
+            upgrade,
+            PythonUpgrade::Enabled(PythonUpgradeSource::Upgrade)
+        ) {
             is_unspecified_upgrade = true;
             let mut minor_version_requests = IndexSet::<InstallRequest>::default();
             for installation in &existing_installations {
@@ -262,7 +292,10 @@ pub(crate) async fn install(
     };
 
     let Some(first_request) = requests.first() else {
-        if upgrade {
+        if matches!(
+            upgrade,
+            PythonUpgrade::Enabled(PythonUpgradeSource::Upgrade)
+        ) {
             writeln!(
                 printer.stderr(),
                 "There are no installed versions to upgrade"
@@ -284,16 +317,17 @@ pub(crate) async fn install(
         })
         .collect::<IndexSet<_>>();
 
-    if upgrade
-        && requests
+    if let PythonUpgrade::Enabled(source) = upgrade {
+        if requests
             .iter()
             .any(|request| request.request.includes_patch())
-    {
-        writeln!(
-            printer.stderr(),
-            "error: `uv python upgrade` only accepts minor versions"
-        )?;
-        return Ok(ExitStatus::Failure);
+        {
+            writeln!(
+                printer.stderr(),
+                "error: `{source}` only accepts minor versions"
+            )?;
+            return Ok(ExitStatus::Failure);
+        }
     }
 
     // Find requests that are already satisfied
@@ -357,10 +391,13 @@ pub(crate) async fn install(
         // If we can find one existing installation that matches the request, it is satisfied
         requests.iter().partition_map(|request| {
             if let Some(installation) = existing_installations.iter().find(|installation| {
-                if upgrade {
-                    // If this is an upgrade, the requested version is a minor version
-                    // but the requested download is the highest patch for that minor
-                    // version. We need to install it unless an exact match is found.
+                if matches!(
+                    upgrade,
+                    PythonUpgrade::Enabled(PythonUpgradeSource::Upgrade)
+                ) {
+                    // If this is an upgrade, the requested version is a minor version but the
+                    // requested download is the highest patch for that minor version. We need to
+                    // install it unless an exact match is found.
                     request.download.key() == installation.key()
                 } else {
                     request.matches_installation(installation)
@@ -494,7 +531,10 @@ pub(crate) async fn install(
                 force,
                 default,
                 upgradeable,
-                upgrade,
+                matches!(
+                    upgrade,
+                    PythonUpgrade::Enabled(PythonUpgradeSource::Upgrade)
+                ),
                 is_default_install,
                 first_request,
                 &existing_installations,
@@ -531,7 +571,10 @@ pub(crate) async fn install(
         );
 
     for installation in minor_versions.values() {
-        if upgrade {
+        if matches!(
+            upgrade,
+            PythonUpgrade::Enabled(PythonUpgradeSource::Upgrade)
+        ) {
             // During an upgrade, update existing symlinks but avoid
             // creating new ones.
             installation.update_minor_version_link(preview)?;
@@ -546,13 +589,20 @@ pub(crate) async fn install(
                 printer.stderr(),
                 "Python is already installed. Use `uv python install <request>` to install another version.",
             )?;
-        } else if upgrade && requests.is_empty() {
+        } else if matches!(
+            upgrade,
+            PythonUpgrade::Enabled(PythonUpgradeSource::Upgrade)
+        ) && requests.is_empty()
+        {
             writeln!(
                 printer.stderr(),
                 "There are no installed versions to upgrade"
             )?;
         } else if requests.len() > 1 {
-            if upgrade {
+            if matches!(
+                upgrade,
+                PythonUpgrade::Enabled(PythonUpgradeSource::Upgrade)
+            ) {
                 if is_unspecified_upgrade {
                     writeln!(
                         printer.stderr(),

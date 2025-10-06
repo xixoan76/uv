@@ -4,6 +4,7 @@ use std::path::PathBuf;
 use std::process;
 use std::str::FromStr;
 
+use crate::commands::{PythonUpgrade, PythonUpgradeSource};
 use uv_auth::Service;
 use uv_cache::{CacheArgs, Refresh};
 use uv_cli::comma::CommaSeparatedRequirements;
@@ -1001,6 +1002,7 @@ pub(crate) struct PythonInstallSettings {
     pub(crate) targets: Vec<String>,
     pub(crate) reinstall: bool,
     pub(crate) force: bool,
+    pub(crate) upgrade: PythonUpgrade,
     pub(crate) bin: Option<bool>,
     pub(crate) registry: Option<bool>,
     pub(crate) python_install_mirror: Option<String>,
@@ -1041,6 +1043,7 @@ impl PythonInstallSettings {
             registry,
             no_registry,
             force,
+            upgrade,
             mirror: _,
             pypy_mirror: _,
             python_downloads_json_url: _,
@@ -1052,6 +1055,11 @@ impl PythonInstallSettings {
             targets,
             reinstall,
             force,
+            upgrade: if upgrade {
+                PythonUpgrade::Enabled(PythonUpgradeSource::Install)
+            } else {
+                PythonUpgrade::Disabled
+            },
             bin: flag(bin, no_bin, "bin").or(environment.python_install_bin),
             registry: flag(registry, no_registry, "registry")
                 .or(environment.python_install_registry),
