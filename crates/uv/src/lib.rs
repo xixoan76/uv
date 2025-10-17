@@ -547,7 +547,7 @@ async fn run(mut cli: Cli) -> Result<ExitStatus> {
             show_settings!(args);
 
             // Initialize the cache.
-            let cache = cache.init()?.with_refresh(
+            let cache = cache.init().await?.with_refresh(
                 args.refresh
                     .combine(Refresh::from(args.settings.reinstall.clone()))
                     .combine(Refresh::from(args.settings.upgrade.clone())),
@@ -655,7 +655,7 @@ async fn run(mut cli: Cli) -> Result<ExitStatus> {
             show_settings!(args);
 
             // Initialize the cache.
-            let cache = cache.init()?.with_refresh(
+            let cache = cache.init().await?.with_refresh(
                 args.refresh
                     .combine(Refresh::from(args.settings.reinstall.clone()))
                     .combine(Refresh::from(args.settings.upgrade.clone())),
@@ -816,7 +816,7 @@ async fn run(mut cli: Cli) -> Result<ExitStatus> {
             }
 
             // Initialize the cache.
-            let cache = cache.init()?.with_refresh(
+            let cache = cache.init().await?.with_refresh(
                 args.refresh
                     .combine(Refresh::from(args.settings.reinstall.clone()))
                     .combine(Refresh::from(args.settings.upgrade.clone())),
@@ -883,7 +883,7 @@ async fn run(mut cli: Cli) -> Result<ExitStatus> {
             show_settings!(args);
 
             // Initialize the cache.
-            let cache = cache.init()?;
+            let cache = cache.init().await?;
 
             let mut sources = Vec::with_capacity(args.package.len() + args.requirements.len());
             for package in args.package {
@@ -919,7 +919,7 @@ async fn run(mut cli: Cli) -> Result<ExitStatus> {
             show_settings!(args);
 
             // Initialize the cache.
-            let cache = cache.init()?;
+            let cache = cache.init().await?;
 
             commands::pip_freeze(
                 args.exclude_editable,
@@ -942,7 +942,7 @@ async fn run(mut cli: Cli) -> Result<ExitStatus> {
             show_settings!(args);
 
             // Initialize the cache.
-            let cache = cache.init()?;
+            let cache = cache.init().await?;
 
             commands::pip_list(
                 args.editable,
@@ -973,7 +973,7 @@ async fn run(mut cli: Cli) -> Result<ExitStatus> {
             show_settings!(args);
 
             // Initialize the cache.
-            let cache = cache.init()?;
+            let cache = cache.init().await?;
 
             commands::pip_show(
                 args.package,
@@ -993,7 +993,7 @@ async fn run(mut cli: Cli) -> Result<ExitStatus> {
             let args = PipTreeSettings::resolve(args, filesystem, environment);
 
             // Initialize the cache.
-            let cache = cache.init()?;
+            let cache = cache.init().await?;
 
             commands::pip_tree(
                 args.show_version_specifiers,
@@ -1027,7 +1027,7 @@ async fn run(mut cli: Cli) -> Result<ExitStatus> {
             show_settings!(args);
 
             // Initialize the cache.
-            let cache = cache.init()?;
+            let cache = cache.init().await?;
 
             commands::pip_check(
                 args.settings.python.as_deref(),
@@ -1044,13 +1044,13 @@ async fn run(mut cli: Cli) -> Result<ExitStatus> {
         })
         | Commands::Clean(args) => {
             show_settings!(args);
-            commands::cache_clean(&args.package, args.force, cache, printer)
+            commands::cache_clean(&args.package, args.force, cache, printer).await
         }
         Commands::Cache(CacheNamespace {
             command: CacheCommand::Prune(args),
         }) => {
             show_settings!(args);
-            commands::cache_prune(args.ci, args.force, cache, printer)
+            commands::cache_prune(args.ci, args.force, cache, printer).await
         }
         Commands::Cache(CacheNamespace {
             command: CacheCommand::Dir,
@@ -1067,7 +1067,7 @@ async fn run(mut cli: Cli) -> Result<ExitStatus> {
             show_settings!(args);
 
             // Initialize the cache.
-            let cache = cache.init()?.with_refresh(
+            let cache = cache.init().await?.with_refresh(
                 args.refresh
                     .combine(Refresh::from(args.settings.upgrade.clone())),
             );
@@ -1128,7 +1128,7 @@ async fn run(mut cli: Cli) -> Result<ExitStatus> {
             show_settings!(args);
 
             // Initialize the cache.
-            let cache = cache.init()?.with_refresh(
+            let cache = cache.init().await?.with_refresh(
                 args.refresh
                     .combine(Refresh::from(args.settings.reinstall.clone()))
                     .combine(Refresh::from(args.settings.upgrade.clone())),
@@ -1270,7 +1270,7 @@ async fn run(mut cli: Cli) -> Result<ExitStatus> {
             show_settings!(args);
 
             // Initialize the cache.
-            let cache = cache.init()?.with_refresh(
+            let cache = cache.init().await?.with_refresh(
                 args.refresh
                     .combine(Refresh::from(args.settings.reinstall.clone()))
                     .combine(Refresh::from(args.settings.resolver.upgrade.clone())),
@@ -1347,7 +1347,7 @@ async fn run(mut cli: Cli) -> Result<ExitStatus> {
             show_settings!(args);
 
             // Initialize the cache.
-            let cache = cache.init()?.with_refresh(
+            let cache = cache.init().await?.with_refresh(
                 args.refresh
                     .combine(Refresh::from(args.settings.reinstall.clone()))
                     .combine(Refresh::from(args.settings.resolver.upgrade.clone())),
@@ -1439,7 +1439,7 @@ async fn run(mut cli: Cli) -> Result<ExitStatus> {
             show_settings!(args);
 
             // Initialize the cache.
-            let cache = cache.init()?;
+            let cache = cache.init().await?;
 
             commands::tool_list(
                 args.show_paths,
@@ -1460,7 +1460,10 @@ async fn run(mut cli: Cli) -> Result<ExitStatus> {
             show_settings!(args);
 
             // Initialize the cache.
-            let cache = cache.init()?.with_refresh(Refresh::All(Timestamp::now()));
+            let cache = cache
+                .init()
+                .await?
+                .with_refresh(Refresh::All(Timestamp::now()));
 
             Box::pin(commands::tool_upgrade(
                 args.names,
@@ -1513,7 +1516,7 @@ async fn run(mut cli: Cli) -> Result<ExitStatus> {
             show_settings!(args);
 
             // Initialize the cache.
-            let cache = cache.init()?;
+            let cache = cache.init().await?;
 
             commands::python_list(
                 args.request,
@@ -1614,7 +1617,7 @@ async fn run(mut cli: Cli) -> Result<ExitStatus> {
             let args = settings::PythonFindSettings::resolve(args, filesystem);
 
             // Initialize the cache.
-            let cache = cache.init()?;
+            let cache = cache.init().await?;
 
             if let Some(Pep723Item::Script(script)) = script {
                 commands::python_find_script(
@@ -1652,7 +1655,7 @@ async fn run(mut cli: Cli) -> Result<ExitStatus> {
             let args = settings::PythonPinSettings::resolve(args, filesystem, environment);
 
             // Initialize the cache.
-            let cache = cache.init()?;
+            let cache = cache.init().await?;
 
             commands::python_pin(
                 &project_dir,
@@ -1806,7 +1809,7 @@ async fn run_project(
             show_settings!(args);
 
             // Initialize the cache.
-            let cache = cache.init()?;
+            let cache = cache.init().await?;
 
             commands::init(
                 project_dir,
@@ -1841,7 +1844,7 @@ async fn run_project(
             show_settings!(args);
 
             // Initialize the cache.
-            let cache = cache.init()?.with_refresh(
+            let cache = cache.init().await?.with_refresh(
                 args.refresh
                     .combine(Refresh::from(args.settings.reinstall.clone()))
                     .combine(Refresh::from(args.settings.resolver.upgrade.clone())),
@@ -1905,7 +1908,7 @@ async fn run_project(
             show_settings!(args);
 
             // Initialize the cache.
-            let cache = cache.init()?.with_refresh(
+            let cache = cache.init().await?.with_refresh(
                 args.refresh
                     .combine(Refresh::from(args.settings.reinstall.clone()))
                     .combine(Refresh::from(args.settings.resolver.upgrade.clone())),
@@ -1955,7 +1958,7 @@ async fn run_project(
             show_settings!(args);
 
             // Initialize the cache.
-            let cache = cache.init()?.with_refresh(
+            let cache = cache.init().await?.with_refresh(
                 args.refresh
                     .clone()
                     .combine(Refresh::from(args.settings.upgrade.clone())),
@@ -2067,7 +2070,7 @@ async fn run_project(
             }
 
             // Initialize the cache.
-            let cache = cache.init()?.with_refresh(
+            let cache = cache.init().await?.with_refresh(
                 args.refresh
                     .combine(Refresh::from(args.settings.reinstall.clone()))
                     .combine(Refresh::from(args.settings.resolver.upgrade.clone())),
@@ -2124,7 +2127,7 @@ async fn run_project(
             show_settings!(args);
 
             // Initialize the cache.
-            let cache = cache.init()?.with_refresh(
+            let cache = cache.init().await?.with_refresh(
                 args.refresh
                     .combine(Refresh::from(args.settings.reinstall.clone()))
                     .combine(Refresh::from(args.settings.resolver.upgrade.clone())),
@@ -2168,7 +2171,7 @@ async fn run_project(
             show_settings!(args);
 
             // Initialize the cache.
-            let cache = cache.init()?.with_refresh(
+            let cache = cache.init().await?.with_refresh(
                 args.refresh
                     .combine(Refresh::from(args.settings.reinstall.clone()))
                     .combine(Refresh::from(args.settings.resolver.upgrade.clone())),
@@ -2208,7 +2211,7 @@ async fn run_project(
             show_settings!(args);
 
             // Initialize the cache.
-            let cache = cache.init()?;
+            let cache = cache.init().await?;
 
             // Unwrap the script.
             let script = script.map(|script| match script {
@@ -2253,7 +2256,7 @@ async fn run_project(
             show_settings!(args);
 
             // Initialize the cache.
-            let cache = cache.init()?;
+            let cache = cache.init().await?;
 
             // Unwrap the script.
             let script = script.map(|script| match script {
@@ -2301,7 +2304,7 @@ async fn run_project(
             show_settings!(args);
 
             // Initialize the cache.
-            let cache = cache.init()?;
+            let cache = cache.init().await?;
 
             Box::pin(commands::format(
                 project_dir,
