@@ -4,7 +4,6 @@ use std::path::PathBuf;
 use std::{env, path::Path, process::Command};
 
 use crate::common::{TestContext, uv_snapshot};
-use anyhow::Result;
 use assert_cmd::assert::OutputAssertExt;
 use assert_fs::{
     assert::PathAssert,
@@ -3656,7 +3655,7 @@ fn python_install_build_version_pypy() {
 /// <https://github.com/astral-sh/python-build-standalone/issues/380>.
 #[cfg(unix)]
 #[test]
-fn missing_python_home_error_message() -> Result<()> {
+fn missing_python_home_error_message() -> anyhow::Result<()> {
     let context = TestContext::new("3.12");
 
     // Create a Python project so we can use `uv sync`
